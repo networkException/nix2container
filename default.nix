@@ -96,25 +96,32 @@ let
       # To find the digest of an image, you can use skopeo:
       # see doc/functions.xml
     , imageDigest
-    , sha256
+    , hash
     , os ? "linux"
     , arch ? pkgs.go.GOARCH
     , tlsVerify ? true
     , name ? fixName "docker-image-${imageName}"
+    , finalImageName ? imageName
+    , finalImageTag ? "latest"
     }: let
       authFile = "/etc/skopeo/auth.json";
-      dir = pkgs.runCommand name
+      image = pkgs.runCommand name
       {
         inherit imageDigest;
         impureEnvVars = l.fetchers.proxyImpureEnvVars;
         outputHashMode = "recursive";
         outputHashAlgo = "sha256";
-        outputHash = sha256;
+        outputHash = hash;
 
         nativeBuildInputs = l.singleton pkgs.skopeo;
         SSL_CERT_FILE = "${pkgs.cacert.out}/etc/ssl/certs/ca-bundle.crt";
 
         sourceURL = "docker://${imageName}@${imageDigest}";
+
+        passthru = {
+          imageName = finalImageName;
+          imageTag = finalImageTag;
+        };
       } ''
       skopeo \
         --insecure-policy \
@@ -134,8 +141,15 @@ let
         "dir://$out" \
         | cat  # pipe through cat to force-disable progress bar
       '';
-    in pkgs.runCommand "nix2container-${imageName}.json" { } ''
-      ${nix2container-bin}/bin/nix2container image-from-dir $out ${dir}
+    in pkgs.runCommand "nix2container-${imageName}.json" {
+      passthru = {
+        copyToDockerDaemon = copyToDockerDaemon image;
+        copyToRegistry = copyToRegistry image;
+        copyToPodman = copyToPodman image;
+        copyTo = copyTo image;
+      };
+    } ''
+      ${nix2container-bin}/bin/nix2container image-from-dir $out ${image}
     '';
 
   pullImageFromManifest =
