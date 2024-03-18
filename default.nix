@@ -19,7 +19,7 @@ let
         p == "default.nix"
       );
     };
-    vendorSha256 = "sha256-/j4ZHOwU5Xi8CE/fHha+2iZhsLd/y2ovzVhvg8HDV78=";
+    vendorHash = "sha256-/j4ZHOwU5Xi8CE/fHha+2iZhsLd/y2ovzVhvg8HDV78=";
     ldflags = pkgs.lib.optionals pkgs.stdenv.isDarwin [
       "-X github.com/nlewo/nix2container/nix.useNixCaseHack=true"
     ];
@@ -105,7 +105,7 @@ let
     , finalImageTag ? "latest"
     }: let
       authFile = "/etc/skopeo/auth.json";
-      image = pkgs.runCommand name
+      dir = pkgs.runCommand name
       {
         inherit imageDigest;
         impureEnvVars = l.fetchers.proxyImpureEnvVars;
@@ -117,11 +117,6 @@ let
         SSL_CERT_FILE = "${pkgs.cacert.out}/etc/ssl/certs/ca-bundle.crt";
 
         sourceURL = "docker://${imageName}@${imageDigest}";
-
-        passthru = {
-          imageName = finalImageName;
-          imageTag = finalImageTag;
-        };
       } ''
       skopeo \
         --insecure-policy \
@@ -141,16 +136,21 @@ let
         "dir://$out" \
         | cat  # pipe through cat to force-disable progress bar
       '';
-    in pkgs.runCommand "nix2container-${imageName}.json" {
-      passthru = {
-        copyToDockerDaemon = copyToDockerDaemon image;
-        copyToRegistry = copyToRegistry image;
-        copyToPodman = copyToPodman image;
-        copyTo = copyTo image;
-      };
-    } ''
-      ${nix2container-bin}/bin/nix2container image-from-dir $out ${image}
-    '';
+    in let
+      image = pkgs.runCommand "nix2container-${imageName}.json" {
+        passthru = {
+          imageName = finalImageName;
+          imageTag = finalImageTag;
+
+          copyToDockerDaemon = copyToDockerDaemon image;
+          copyToRegistry = copyToRegistry image;
+          copyToPodman = copyToPodman image;
+          copyTo = copyTo image;
+        };
+      } ''
+        ${nix2container-bin}/bin/nix2container image-from-dir $out ${dir}
+      '';
+    in image;
 
   pullImageFromManifest =
     { imageName
